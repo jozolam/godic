@@ -68,25 +68,35 @@ func Get[T any](
 			}
 		}()
 	}
-	var zero T
+
 	s, ok := c.storage[name]
 	if ok {
 		if !s.isBuild {
-			return zero, fmt.Errorf("circular dependency detected with service %v", name)
+			return instance, fmt.Errorf("circular dependency detected with service %v", name)
 		}
 		instance, okType := s.instance.(T)
 		if !okType {
-			return zero, fmt.Errorf("unable to assert type")
+			return instance, fmt.Errorf("unable to assert type")
 		}
 		return instance, nil
 	}
-	c.storage[name] = &service{name: name, instance: zero, isBuild: false, hasCircularDependency: false, tags: tags}
+
+	c.storage[name] = &service{
+		name:                  name,
+		instance:              instance,
+		isBuild:               false,
+		hasCircularDependency: false,
+		tags:                  tags,
+	}
+
 	instance, err = builderFc(ctx, c)
 	if err != nil {
 		delete(c.storage, name)
 		return instance, err
 	}
+
 	c.storage[name].instance = instance
 	c.storage[name].isBuild = true
+
 	return instance, nil
 }
