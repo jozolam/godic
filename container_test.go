@@ -23,32 +23,50 @@ func TestCreateService(t *testing.T) {
 		}
 	}
 
+	type B struct {
+		a *A
+	}
+
+	newB := func(a *A) *B {
+		return &B{
+			a: a,
+		}
+	}
+
 	ctx := context.TODO()
 	c := NewContainer()
 	if c == nil {
 		t.Fatalf("failed to create container")
 	}
 
-	a, err := Get(
-		ctx,
-		c,
-		"test",
-		func(ctx context.Context, c *Container) (*A, error) {
-			return newA("test"), nil
-		},
-		nil,
-		nil,
-	)
-
-	if err != nil {
-		t.Fatalf("failed to create service with error %v", err)
+	a := func(ctx context.Context, c *Container) *A {
+		return GetStrictBasic(
+			ctx,
+			c,
+			"a",
+			func(ctx context.Context, c *Container) (*A, error) {
+				return newA("test"), nil
+			},
+		)
 	}
 
-	if a == nil {
+	b := func(ctx context.Context, c *Container) *B {
+		return GetStrictBasic(
+			ctx,
+			c,
+			"b",
+			func(ctx context.Context, c *Container) (*B, error) {
+				return newB(a(ctx, c)), nil
+			},
+		)
+	}
+	bInstance := b(ctx, c)
+
+	if b == nil || bInstance.a == nil {
 		t.Fatalf("created service is nil")
 	}
 
-	if a.name != "test" {
-		t.Fatalf("service has wrong name provided %v, expected %v", a.name, "test")
+	if bInstance.a.name != "test" {
+		t.Fatalf("service has wrong name provided %v, expected %v", bInstance.a.name, "test")
 	}
 }
