@@ -40,16 +40,24 @@ func TestCreateService(t *testing.T) {
 	}
 
 	a := func(ctx context.Context, c *Container) *A {
-		return GetStrictBasic(ctx, c, "a", func(ctx context.Context, c *Container) (*A, error) {
-			return newA("test"), nil
-		},
+		return GetStrictBasic(
+			ctx,
+			c,
+			"a",
+			func(ctx context.Context, c *Container) (*A, error) {
+				return newA("test"), nil
+			},
 		)
 	}
 
 	b := func(ctx context.Context, c *Container) *B {
-		return GetStrictBasic(ctx, c, "b", func(ctx context.Context, c *Container) (*B, error) {
-			return newB(a(ctx, c)), nil
-		},
+		return GetStrictBasic(
+			ctx,
+			c,
+			"b",
+			func(ctx context.Context, c *Container) (*B, error) {
+				return newB(a(ctx, c)), nil
+			},
 		)
 	}
 	bInstance := b(ctx, c)
