@@ -28,48 +28,33 @@ func NewContainer() *Container {
 
 const contextKey = "something"
 
-func Strict[T any](ctx context.Context, c *Container, callback func(ctx context.Context, c *Container) (T, error)) T {
-	instance, err := callback(ctx, c)
-	if err != nil {
-		panic(err)
-	}
-
-	return instance
-}
-
-func GetStrictBasic[T any](
+func TryBuild[T any](
 	ctx context.Context,
 	c *Container,
 	name string,
 	builderFc func(ctx context.Context, c *Container) (T, error),
-) T {
-	return GetStrict(ctx, c, name, builderFc, nil, nil, false)
+) (T, error) {
+	return TryBuildExtended(ctx, c, name, builderFc, nil, nil, false)
 }
 
-func GetStrict[T any](
+func Build[T any](
 	ctx context.Context,
 	c *Container,
 	name string,
-	builderFc func(ctx context.Context, c *Container) (T, error),
-	tags []string,
-	callbacks []func(ctx context.Context, c *Container, instance T) error,
-	hasCircularDependency bool,
+	builderFc func(ctx context.Context, c *Container) T,
 ) T {
-	instance, err := Get(ctx, c, name, builderFc, tags, callbacks, hasCircularDependency)
-	if err != nil {
-		panic(err)
-	}
-
-	return instance
+	return BuildExtended(ctx, c, name, builderFc, nil, nil, false)
 }
 
-func SetService(ctx context.Context, c *Container, name string, instance any, tags []string) error {
+// SetService allow to bypass standard builder function and store mocked service into container.
+// This is meant for testing purposes but can be also useful if you prefer to build some services outside of container.
+func SetService(ctx context.Context, c *Container, name string, instance any, tags []string) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
 	_, ok := c.storage[name]
 	if ok {
-		return fmt.Errorf("service with name %s is already set", name)
+		panic(fmt.Sprintf("service with name %s is already set", name))
 	}
 	c.storage[name] = &service{
 		name:                  name,
@@ -78,11 +63,9 @@ func SetService(ctx context.Context, c *Container, name string, instance any, ta
 		hasCircularDependency: false,
 		tags:                  tags,
 	}
-
-	return nil
 }
 
-func Get[T any](
+func TryBuildExtended[T any](
 	ctx context.Context,
 	c *Container,
 	name string,
@@ -111,12 +94,12 @@ func Get[T any](
 	s, ok := c.storage[name]
 	if ok {
 		if !s.isBuild && !s.hasCircularDependency {
-			return instance, fmt.Errorf("circular dependency detected with service %v", name)
+			panic(fmt.Sprintf("circular dependency detected with service %v", name))
 		}
 		var okType bool
 		instance, okType = s.instance.(T)
 		if !okType {
-			return instance, fmt.Errorf("unable to assert type")
+			panic("unable to assert type")
 		}
 		return instance, nil
 	}
@@ -139,4 +122,57 @@ func Get[T any](
 	c.storage[name].isBuild = true
 
 	return instance, nil
+}
+
+func BuildExtended[T any](
+	ctx context.Context,
+	c *Container,
+	name string,
+	builderFc func(ctx context.Context, c *Container) T,
+	tags []string,
+	callbacks []func(ctx context.Context, c *Container, instance T),
+	hasCircularDependency bool,
+) (instance T) {
+	if ctx.Value(contextKey) == nil {
+		c.lock.Lock()
+		defer c.lock.Unlock()
+		ctx = context.WithValue(ctx, contextKey, name)
+	}
+
+	if callbacks != nil && len(callbacks) > 0 {
+		defer func() {
+			for _, callback := range callbacks {
+				callback(ctx, c, instance)
+				return
+			}
+		}()
+	}
+
+	s, ok := c.storage[name]
+	if ok {
+		if !s.isBuild && !s.hasCircularDependency {
+			panic(fmt.Sprintf("circular dependency detected with service %v", name))
+		}
+		var okType bool
+		instance, okType = s.instance.(T)
+		if !okType {
+			panic("unable to assert type")
+		}
+		return instance
+	}
+
+	c.storage[name] = &service{
+		name:                  name,
+		instance:              instance,
+		isBuild:               false,
+		hasCircularDependency: hasCircularDependency,
+		tags:                  tags,
+	}
+
+	instance = builderFc(ctx, c)
+
+	c.storage[name].instance = instance
+	c.storage[name].isBuild = true
+
+	return instance
 }
